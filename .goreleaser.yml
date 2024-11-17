@@ -42,7 +42,7 @@ changelog:
       - "^test:"
 
 brews:
-  - name: grass
+  - name: pedloy
     repository:
       owner: jaxxstorm
       name: homebrew-tap
