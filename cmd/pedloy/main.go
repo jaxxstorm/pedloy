@@ -9,10 +9,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/jaxxstorm/pedloy/pkg/contract"
 	"github.com/jaxxstorm/pedloy/cmd/pedloy/deploy"
 	"github.com/jaxxstorm/pedloy/cmd/pedloy/destroy"
 	"github.com/jaxxstorm/pedloy/cmd/pedloy/version"
+	"github.com/jaxxstorm/pedloy/pkg/contract"
 )
 
 var (
@@ -24,8 +24,8 @@ func configureCLI() *cobra.Command {
 	v := viper.New()
 
 	rootCommand := &cobra.Command{
-		Use:   "pedloy",
-		Long:  "Deploy Pulumi stacks in order",
+		Use:  "pedloy",
+		Long: "Deploy Pulumi stacks in order",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Bind flags to viper
 			if err := v.BindPFlags(cmd.Flags()); err != nil {

@@ -1,9 +1,10 @@
 // pkg/graph/graph.go
 package graph
 
-import(
+import (
 	"fmt"
 	"sort"
+
 	"github.com/dominikbraun/graph"
 	p "github.com/jaxxstorm/pedloy/pkg/project"
 )
@@ -34,6 +35,11 @@ func GetExecutionGroups(projects []p.Project) ([][]string, error) {
 	projectDeps := make(map[string][]string) // Track merged dependencies
 
 	for _, project := range projects {
+		// Convert project.Stacks to []string (stack names)
+		var stackNames []string
+		for _, s := range project.Stacks {
+			stackNames = append(stackNames, s.Name)
+		}
 		// Merge stacks for duplicate projects
 		if existing, ok := validStacks[project.Name]; ok {
 			// Create a map for unique stacks
@@ -41,7 +47,7 @@ func GetExecutionGroups(projects []p.Project) ([][]string, error) {
 			for _, s := range existing {
 				stackMap[s] = true
 			}
-			for _, s := range project.Stacks {
+			for _, s := range stackNames {
 				stackMap[s] = true
 			}
 
@@ -67,7 +73,7 @@ func GetExecutionGroups(projects []p.Project) ([][]string, error) {
 			}
 			projectDeps[project.Name] = mergedDeps
 		} else {
-			validStacks[project.Name] = project.Stacks
+			validStacks[project.Name] = stackNames
 			projectDeps[project.Name] = project.DependsOn
 		}
 	}

@@ -5,6 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/jaxxstorm/pedloy/pkg/graph"
 	proj "github.com/jaxxstorm/pedloy/pkg/project"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -13,11 +19,6 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
 )
 
 func createOutputLogger(fields ...zap.Field) *zap.Logger {
@@ -57,22 +58,44 @@ func createOrSelectStack(ctx context.Context, org string, stackName string, proj
 	} else {
 		usedStackName = org + "/" + stackName
 	}
-	projectPath := filepath.Join(source.LocalPath, project.Name)
+	projectPath := source.LocalPath
+	if project.Dir != "" {
+		projectPath = project.Dir
+	} else if source.LocalPath != "" {
+		projectPath = filepath.Join(source.LocalPath, project.Name)
+	} else {
+		projectPath = project.Name
+	}
 	return auto.UpsertStackLocalSource(ctx, usedStackName, projectPath)
 }
 
 func deployStack(project proj.Project, stack string, org string, source proj.ProjectSource, ctx context.Context, logger *zap.Logger, jsonLog bool) error {
-	logger = logger.With(zap.String("project", project.Name), zap.String("stack", stack))
-	logger.Info("Deploying stack")
-
-	eventChannel := make(chan events.EngineEvent)
-	go processEvents(logger, eventChannel)
-
+	// Determine the correct AWS profile for this stack
+	awsProfile := project.AWSProfile
+	for _, sc := range project.Stacks {
+		if sc.Name == stack && sc.AWSProfile != "" {
+			awsProfile = sc.AWSProfile
+			break
+		}
+	}
 	s, err := createOrSelectStack(ctx, org, stack, project, source)
 	if err != nil {
 		logger.Error("Failed to create or select stack", zap.Error(err))
 		return err
 	}
+	var ws auto.Workspace
+	if awsProfile != "" {
+		ws = s.Workspace()
+		ws.SetEnvVar("AWS_PROFILE", awsProfile)
+		logger.Info("Setting AWS_PROFILE for stack", zap.String("aws_profile", awsProfile))
+	} else {
+		logger.Info("No AWS_PROFILE set for stack")
+	}
+	logger = logger.With(zap.String("project", project.Name), zap.String("stack", stack))
+	logger.Info("Deploying stack")
+
+	eventChannel := make(chan events.EngineEvent)
+	go processEvents(logger, eventChannel)
 
 	var upErr error
 	if jsonLog {
@@ -85,10 +108,14 @@ func deployStack(project proj.Project, stack string, org string, source proj.Pro
 	} else {
 		logger.Info("Successfully deployed stack")
 	}
+	// Unset AWS_PROFILE after stack operation
+	if awsProfile != "" && ws != nil {
+		ws.UnsetEnvVar("AWS_PROFILE")
+	}
 	return upErr
 }
 
-func Deploy(org string, projects []proj.Project, source proj.ProjectSource, jsonLogger bool) {
+func Deploy(org string, projects []proj.Project, source proj.ProjectSource, jsonLogger bool, errorFile string) {
 	// Create a logger with a global field for deployment
 	logger := createOutputLogger(zap.String("operation", "deploy"))
 	defer logger.Sync()
@@ -148,6 +175,14 @@ func Deploy(org string, projects []proj.Project, source proj.ProjectSource, json
 				stackLogger.Info("Deploying stack")
 				err := deployStack(projectDef, stackName, org, source, ctx, stackLogger, jsonLogger)
 				if err != nil {
+					// Log error to file if errorFile is set
+					if errorFile != "" {
+						f, ferr := os.OpenFile(errorFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+						if ferr == nil {
+							defer f.Close()
+							f.WriteString(fmt.Sprintf("failed to deploy %s: %v\n", vertex, err))
+						}
+					}
 					groupErrors <- fmt.Errorf("failed to deploy %s: %w", vertex, err)
 					return
 				}
@@ -166,7 +201,8 @@ func Deploy(org string, projects []proj.Project, source proj.ProjectSource, json
 		// Check for any errors in this group
 		for err := range groupErrors {
 			if err != nil {
-				stageLogger.Fatal("Deployment failed", zap.Error(err))
+				// Do not fatal, just log error (already written to file if needed)
+				stageLogger.Error("Deployment failed", zap.Error(err))
 			}
 		}
 
@@ -243,12 +279,33 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 					return
 				}
 
-				// Destroy the stack
+				// Determine the correct AWS profile for this stack
+				awsProfile := projectDef.AWSProfile
+				for _, sc := range projectDef.Stacks {
+					if sc.Name == stackName && sc.AWSProfile != "" {
+						awsProfile = sc.AWSProfile
+						break
+					}
+				}
+				var ws auto.Workspace
+				if awsProfile != "" {
+					ws = s.Workspace()
+					ws.SetEnvVar("AWS_PROFILE", awsProfile)
+					stageLogger.Info("Setting AWS_PROFILE for stack", zap.String("aws_profile", awsProfile))
+				} else {
+					stageLogger.Info("No AWS_PROFILE set for stack")
+				}
+
 				var destroyErr error
 				if jsonLogger {
 					_, destroyErr = s.Destroy(ctx, optdestroy.EventStreams(eventChannel))
 				} else {
 					_, destroyErr = s.Destroy(ctx, optdestroy.ProgressStreams(os.Stdout))
+				}
+
+				// Unset AWS_PROFILE after stack operation
+				if awsProfile != "" && ws != nil {
+					ws.UnsetEnvVar("AWS_PROFILE")
 				}
 
 				if destroyErr != nil {
