@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 
+	"context"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -13,6 +15,10 @@ import (
 	"github.com/jaxxstorm/pedloy/cmd/pedloy/destroy"
 	"github.com/jaxxstorm/pedloy/cmd/pedloy/version"
 	"github.com/jaxxstorm/pedloy/pkg/contract"
+
+	pkgver "github.com/jaxxstorm/pedloy/pkg/version"
+
+	"github.com/charmbracelet/fang"
 )
 
 var (
@@ -55,10 +61,8 @@ func configureCLI() *cobra.Command {
 }
 
 func main() {
-	rootCommand := configureCLI()
-
-	if err := rootCommand.Execute(); err != nil {
-		contract.IgnoreIoError(fmt.Fprintf(os.Stderr, "%s", err))
+	if err := fang.Execute(context.Background(), configureCLI(), fang.WithVersion(pkgver.GetVersion())); err != nil {
+		contract.IgnoreIoError(fmt.Fprintf(os.Stderr, "%v\n", err))
 		os.Exit(1)
 	}
 }
