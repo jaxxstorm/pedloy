@@ -139,6 +139,7 @@ func Deploy(org string, projects []proj.Project, source proj.ProjectSource, json
 	ctx := context.Background()
 	deployed := make(map[string]bool)
 	mu := &sync.Mutex{}
+	var allErrors []error
 
 	// Execute each group sequentially
 	for groupIndex, group := range executionGroups {
@@ -201,15 +202,22 @@ func Deploy(org string, projects []proj.Project, source proj.ProjectSource, json
 		// Check for any errors in this group
 		for err := range groupErrors {
 			if err != nil {
-				// Do not fatal, just log error (already written to file if needed)
 				stageLogger.Error("Deployment failed", zap.Error(err))
+				allErrors = append(allErrors, err)
 			}
 		}
 
 		stageLogger.Info("Completed deployment stage")
 	}
 
-	logger.Info("Deployment completed successfully")
+	if len(allErrors) > 0 {
+		logger.Error("Deployment completed with errors")
+		for _, err := range allErrors {
+			logger.Error("Resource issue", zap.Error(err))
+		}
+	} else {
+		logger.Info("Deployment completed successfully")
+	}
 }
 
 func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jsonLogger bool) {
@@ -236,6 +244,7 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 	ctx := context.Background()
 	destroyed := make(map[string]bool)
 	mu := &sync.Mutex{}
+	var allErrors []error
 
 	// Execute each group sequentially in reverse order
 	for i := len(executionGroups) - 1; i >= 0; i-- {
@@ -331,12 +340,28 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 		// Check for any errors in this group
 		for err := range groupErrors {
 			if err != nil {
-				stageLogger.Fatal("Destruction failed", zap.Error(err))
+				stageLogger.Error("Destruction failed", zap.Error(err))
+				allErrors = append(allErrors, err)
 			}
 		}
 
 		stageLogger.Info("Completed destruction stage")
 	}
 
-	logger.Info("Destruction completed successfully")
+	if len(allErrors) > 0 {
+		logger.Error("Destruction completed with errors")
+		fmt.Println("\nFailed Resources:")
+		for _, err := range allErrors {
+			errMsg := err.Error()
+			lines := strings.Split(errMsg, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "urn:pulumi") {
+					fmt.Printf("- %s\n", strings.TrimSpace(line))
+				}
+			}
+		}
+		fmt.Println("\nPlease address these issues manually.")
+	} else {
+		logger.Info("Destruction completed successfully")
+	}
 }
