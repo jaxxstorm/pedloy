@@ -53,7 +53,8 @@ func Command() *cobra.Command {
 					return fmt.Errorf("preview failed: %w", err)
 				}
 			} else {
-				auto.Deploy(org, projects, source, jsonLogger)
+				errorFile := v.GetString("error-file")
+				auto.Deploy(org, projects, source, jsonLogger, errorFile)
 			}
 
 			return nil
@@ -68,6 +69,7 @@ func Command() *cobra.Command {
 	cmd.Flags().String("git-branch", "main", "The Git branch to use")
 	cmd.Flags().Bool("preview", false, "Preview the deployment plan")
 	cmd.Flags().Bool("json", false, "Enable JSON logging")
+	cmd.Flags().String("error-file", "", "Path to error log file (optional)")
 
 	return cmd
 }
