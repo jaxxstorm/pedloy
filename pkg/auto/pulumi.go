@@ -236,7 +236,7 @@ func Deploy(org string, projects []proj.Project, source proj.ProjectSource, json
 	}
 }
 
-func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jsonLogger bool) {
+func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jsonLogger bool, removeStack bool) {
 	// Create a logger with a global field for destruction
 	logger := createOutputLogger(zap.String("operation", "destroy"))
 	defer logger.Sync()
@@ -335,6 +335,23 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 					_, destroyErr = s.Destroy(ctx, optdestroy.EventStreams(eventChannel))
 				} else {
 					_, destroyErr = s.Destroy(ctx, optdestroy.ProgressStreams(os.Stdout))
+				}
+
+				// Remove stack if requested and destroy succeeded
+				if removeStack && destroyErr == nil {
+					if err := s.Workspace().RemoveStack(ctx, s.Name()); err != nil {
+						stageLogger.Error("Failed to remove stack after destroy",
+							zap.String("project", projectDef.Name),
+							zap.String("stack", stackName),
+							zap.Error(err),
+						)
+						groupErrors <- fmt.Errorf("failed to remove stack %s: %w", vertex, err)
+						return
+					}
+					stageLogger.Info("Removed stack after destroy",
+						zap.String("project", projectDef.Name),
+						zap.String("stack", stackName),
+					)
 				}
 
 				// Unset env vars after stack operation

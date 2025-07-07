@@ -45,6 +45,7 @@ func Command() *cobra.Command {
 			org := v.GetString("org")
 			jsonLogger := v.GetBool("json")
 			preview := v.GetBool("preview")
+			rm := v.GetBool("rm")
 
 			// Perform preview or destruction
 			if preview {
@@ -53,7 +54,7 @@ func Command() *cobra.Command {
 					return fmt.Errorf("preview failed: %w", err)
 				}
 			} else {
-				auto.Destroy(org, projects, source, jsonLogger)
+				auto.Destroy(org, projects, source, jsonLogger, rm)
 			}
 
 			return nil
@@ -68,6 +69,7 @@ func Command() *cobra.Command {
 	cmd.Flags().String("git-branch", "main", "The Git branch to use")
 	cmd.Flags().Bool("preview", false, "Preview the destruction plan")
 	cmd.Flags().Bool("json", false, "Enable JSON logging")
+	cmd.Flags().Bool("rm", false, "Delete the stack after destruction")
 
 	return cmd
 }
