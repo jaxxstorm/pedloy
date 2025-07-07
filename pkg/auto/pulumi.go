@@ -70,11 +70,11 @@ func createOrSelectStack(ctx context.Context, org string, stackName string, proj
 }
 
 func deployStack(project proj.Project, stack string, org string, source proj.ProjectSource, ctx context.Context, logger *zap.Logger, jsonLog bool) error {
-	// Determine the correct AWS profile for this stack
-	awsProfile := project.AWSProfile
+	// Set environment variables for this stack if present
+	var envVars map[string]string
 	for _, sc := range project.Stacks {
-		if sc.Name == stack && sc.AWSProfile != "" {
-			awsProfile = sc.AWSProfile
+		if sc.Name == stack && sc.Env != nil {
+			envVars = sc.Env
 			break
 		}
 	}
@@ -84,12 +84,21 @@ func deployStack(project proj.Project, stack string, org string, source proj.Pro
 		return err
 	}
 	var ws auto.Workspace
-	if awsProfile != "" {
+	if len(envVars) > 0 {
 		ws = s.Workspace()
-		ws.SetEnvVar("AWS_PROFILE", awsProfile)
-		logger.Info("Setting AWS_PROFILE for stack", zap.String("aws_profile", awsProfile))
+		for k, v := range envVars {
+			ws.SetEnvVar(k, v)
+		}
+		logger.Info("Setting environment variables for stack",
+			zap.String("project", project.Name),
+			zap.String("stack", stack),
+			zap.Any("env_vars", envVars),
+		)
 	} else {
-		logger.Info("No AWS_PROFILE set for stack")
+		logger.Info("No stack-specific env vars set for stack",
+			zap.String("project", project.Name),
+			zap.String("stack", stack),
+		)
 	}
 	logger = logger.With(zap.String("project", project.Name), zap.String("stack", stack))
 	logger.Info("Deploying stack")
@@ -108,9 +117,16 @@ func deployStack(project proj.Project, stack string, org string, source proj.Pro
 	} else {
 		logger.Info("Successfully deployed stack")
 	}
-	// Unset AWS_PROFILE after stack operation
-	if awsProfile != "" && ws != nil {
-		ws.UnsetEnvVar("AWS_PROFILE")
+	// Unset env vars after stack operation
+	if envVars != nil && ws != nil {
+		for k := range envVars {
+			ws.UnsetEnvVar(k)
+		}
+		logger.Info("Unset environment variables for stack",
+			zap.String("project", project.Name),
+			zap.String("stack", stack),
+			zap.Any("env_vars", envVars),
+		)
 	}
 	return upErr
 }
@@ -288,21 +304,30 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 					return
 				}
 
-				// Determine the correct AWS profile for this stack
-				awsProfile := projectDef.AWSProfile
+				// Set environment variables for this stack if present
+				var envVars map[string]string
 				for _, sc := range projectDef.Stacks {
-					if sc.Name == stackName && sc.AWSProfile != "" {
-						awsProfile = sc.AWSProfile
+					if sc.Name == stackName && sc.Env != nil {
+						envVars = sc.Env
 						break
 					}
 				}
 				var ws auto.Workspace
-				if awsProfile != "" {
+				if len(envVars) > 0 {
 					ws = s.Workspace()
-					ws.SetEnvVar("AWS_PROFILE", awsProfile)
-					stageLogger.Info("Setting AWS_PROFILE for stack", zap.String("aws_profile", awsProfile))
+					for k, v := range envVars {
+						ws.SetEnvVar(k, v)
+					}
+					stageLogger.Info("Setting environment variables for stack",
+						zap.String("project", projectDef.Name),
+						zap.String("stack", stackName),
+						zap.Any("env_vars", envVars),
+					)
 				} else {
-					stageLogger.Info("No AWS_PROFILE set for stack")
+					stageLogger.Info("No stack-specific env vars set for stack",
+						zap.String("project", projectDef.Name),
+						zap.String("stack", stackName),
+					)
 				}
 
 				var destroyErr error
@@ -312,9 +337,16 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 					_, destroyErr = s.Destroy(ctx, optdestroy.ProgressStreams(os.Stdout))
 				}
 
-				// Unset AWS_PROFILE after stack operation
-				if awsProfile != "" && ws != nil {
-					ws.UnsetEnvVar("AWS_PROFILE")
+				// Unset env vars after stack operation
+				if envVars != nil && ws != nil {
+					for k := range envVars {
+						ws.UnsetEnvVar(k)
+					}
+					stageLogger.Info("Unset environment variables for stack",
+						zap.String("project", projectDef.Name),
+						zap.String("stack", stackName),
+						zap.Any("env_vars", envVars),
+					)
 				}
 
 				if destroyErr != nil {

@@ -5,8 +5,8 @@ package project
 import "fmt"
 
 type StackConfig struct {
-	Name       string `yaml:"name"`
-	AWSProfile string `yaml:"aws_profile,omitempty"`
+	Name string            `yaml:"name"`
+	Env  map[string]string `yaml:"env,omitempty"`
 }
 
 type Stacks []StackConfig
@@ -21,7 +21,46 @@ func (s *Stacks) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		}
 		return nil
 	}
-	// Try as []map
+
+	// Try as []map[string]interface{} to support env
+	var rawConfigs []map[string]interface{}
+	if err := unmarshal(&rawConfigs); err == nil {
+		configs := make([]StackConfig, len(rawConfigs))
+		for i, raw := range rawConfigs {
+			// Name is required
+			name, ok := raw["name"].(string)
+			if !ok {
+				return fmt.Errorf("stack config missing required 'name' field")
+			}
+			configs[i].Name = name
+
+			// Env is optional
+			if envRaw, ok := raw["env"]; ok {
+				envMap := make(map[string]string)
+				switch envTyped := envRaw.(type) {
+				case map[interface{}]interface{}:
+					for k, v := range envTyped {
+						ks, kOk := k.(string)
+						vs, vOk := v.(string)
+						if kOk && vOk {
+							envMap[ks] = vs
+						}
+					}
+				case map[string]interface{}:
+					for k, v := range envTyped {
+						if vs, vOk := v.(string); vOk {
+							envMap[k] = vs
+						}
+					}
+				}
+				configs[i].Env = envMap
+			}
+		}
+		*s = configs
+		return nil
+	}
+
+	// Try as []StackConfig (for backwards compatibility)
 	var configs []StackConfig
 	if err := unmarshal(&configs); err == nil {
 		*s = configs
