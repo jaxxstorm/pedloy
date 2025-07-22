@@ -338,6 +338,7 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 				}
 
 				// Remove stack if requested and destroy succeeded
+				var removeErr error
 				if removeStack && destroyErr == nil {
 					if err := s.Workspace().RemoveStack(ctx, s.Name()); err != nil {
 						stageLogger.Error("Failed to remove stack after destroy",
@@ -345,16 +346,16 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 							zap.String("stack", stackName),
 							zap.Error(err),
 						)
-						groupErrors <- fmt.Errorf("failed to remove stack %s: %w", vertex, err)
-						return
+						removeErr = fmt.Errorf("failed to remove stack %s: %w", vertex, err)
+					} else {
+						stageLogger.Info("Removed stack after destroy",
+							zap.String("project", projectDef.Name),
+							zap.String("stack", stackName),
+						)
 					}
-					stageLogger.Info("Removed stack after destroy",
-						zap.String("project", projectDef.Name),
-						zap.String("stack", stackName),
-					)
 				}
 
-				// Unset env vars after stack operation
+				// Always unset env vars after stack operation, regardless of destroy/remove success
 				if envVars != nil && ws != nil {
 					for k := range envVars {
 						ws.UnsetEnvVar(k)
@@ -366,8 +367,13 @@ func Destroy(org string, projects []proj.Project, source proj.ProjectSource, jso
 					)
 				}
 
+				// Report errors after cleanup
 				if destroyErr != nil {
 					groupErrors <- fmt.Errorf("failed to destroy %s: %w", vertex, destroyErr)
+					return
+				}
+				if removeErr != nil {
+					groupErrors <- removeErr
 					return
 				}
 
